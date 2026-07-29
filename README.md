@@ -23,10 +23,7 @@ The first deploy provisions Netlify Database and applies the migration in `netli
 
 ## Environment variables
 
-- `CINEMA_PASSWORD`: shared resident password
-- `ADMIN_PASSWORD`: separate collection-management password
-- `SESSION_SECRET`: long random value used to sign login sessions; recommended
-- `OMDB_API_KEY`: OMDb API key for IMDb-linked metadata
+
 
 Do not expose these values in client-side code or commit a populated `.env` file.
 
