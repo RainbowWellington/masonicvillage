@@ -1,6 +1,6 @@
 import type { Config, Context } from '@netlify/functions'
 import { readSession } from '../lib/auth.js'
-import { getMovie, searchMovies, titleFromBarcode } from '../lib/movie-data.js'
+import { getMovie, LookupError, searchMovies, titleFromBarcode } from '../lib/movie-data.js'
 
 export default async (request: Request, context: Context) => {
   if (!(await readSession(context))) return Response.json({ error: 'Please sign in.' }, { status: 401 })
@@ -19,7 +19,9 @@ export default async (request: Request, context: Context) => {
     if (!title) return Response.json({ error: 'Enter a movie title.' }, { status: 400 })
     return Response.json({ matches: await searchMovies(title) })
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : 'Movie lookup failed.' }, { status: 400 })
+    if (error instanceof LookupError) return Response.json({ error: error.message }, { status: 400 })
+    console.error('movie lookup failed', error)
+    return Response.json({ error: 'The movie lookup service could not be reached.' }, { status: 502 })
   }
 }
 

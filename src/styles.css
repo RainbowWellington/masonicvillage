@@ -137,9 +137,20 @@ dl { margin: 25px 0; border-top: 1px solid var(--line); }
 dl > div { display: grid; grid-template-columns: 95px 1fr; gap: 15px; padding: 13px 0; border-bottom: 1px solid var(--line); }
 dt { color: var(--muted); font: 750 11px ui-sans-serif, system-ui, sans-serif; text-transform: uppercase; letter-spacing: .08em; } dd { margin: 0; font-size: 15px; line-height: 1.45; } dd svg { vertical-align: -3px; color: var(--red); }
 .details-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-.admin-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 25px; padding: 12px; background: #eee8da; border-radius: 8px; font: 700 11px ui-sans-serif, system-ui, sans-serif; }
-.admin-tools > span { display: flex; align-items: center; gap: 5px; margin-right: auto; }.admin-tools button { padding: 8px 10px; display: flex; align-items: center; gap: 5px; border: 1px solid #cfc5b2; border-radius: 5px; background: var(--paper); cursor: pointer; font-weight: 700; }.admin-tools .danger { color: #9b3326; }
-.admin-tools input { width: 155px; min-height: 34px; padding: 0 9px; border: 1px solid #cfc5b2; border-radius: 5px; background: var(--paper); font: 12px ui-sans-serif, system-ui, sans-serif; }
+.admin-panel { margin-top: 26px; padding: 17px 18px 18px; background: #eee8da; border: 1px solid #ded5c2; border-radius: 9px; }
+.admin-panel-heading { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--ink); font: 800 11px ui-sans-serif, system-ui, sans-serif; text-transform: uppercase; letter-spacing: .1em; }
+.admin-panel label { display: block; margin: 17px 0 7px; font: 750 12px ui-sans-serif, system-ui, sans-serif; }.admin-panel label span { color: var(--muted); font-weight: 500; }
+.admin-field { display: flex; flex-wrap: wrap; gap: 7px; }
+.admin-field input { min-width: 170px; flex: 1 1 190px; min-height: 42px; padding: 0 12px; border: 1px solid #cfc5b2; border-radius: 6px; background: var(--paper); outline: 0; font: 15px ui-sans-serif, system-ui, sans-serif; }
+.admin-field input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(223,170,69,.17); }
+.admin-field button { min-height: 42px; padding: 0 13px; display: flex; align-items: center; gap: 6px; border: 1px solid #cfc5b2; border-radius: 6px; background: var(--paper); cursor: pointer; font: 750 12px ui-sans-serif, system-ui, sans-serif; }
+.admin-field button:hover:not(:disabled) { border-color: var(--gold); background: #fdf8ee; }
+.admin-field button:disabled { opacity: .5; cursor: not-allowed; }
+.admin-hint { margin: 9px 0 0; color: var(--muted); font: 12px/1.5 ui-sans-serif, system-ui, sans-serif; }
+.admin-matches { max-height: 250px; border-top-color: #ded5c2; }.admin-matches button:hover { background: #e5ddca; }
+.admin-remove { margin-top: 20px; min-height: 40px; padding: 0 13px; display: flex; align-items: center; gap: 6px; border: 1px solid #d8bdb6; border-radius: 6px; background: var(--paper); color: #9b3326; cursor: pointer; font: 750 12px ui-sans-serif, system-ui, sans-serif; }
+.admin-remove:disabled { opacity: .5; cursor: not-allowed; }
+.form-success { margin-top: 14px; padding: 11px 13px; display: flex; align-items: center; gap: 7px; border-left: 3px solid var(--forest); background: #e6ecdf; color: #2f4433; font: 600 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
 .add-modal { width: min(720px, 100%); padding: clamp(30px, 5vw, 58px); }
 .tab-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 28px 0 22px; padding: 5px; background: #eee7da; border-radius: 9px; }
 .tab-list button { min-height: 45px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; color: var(--muted); font: 750 13px ui-sans-serif, system-ui, sans-serif; }.tab-list button.active { color: var(--ink); background: var(--paper); box-shadow: 0 3px 9px rgba(30,40,33,.09); }

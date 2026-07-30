@@ -69,9 +69,15 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   })
-  const body = (await response.json()) as T & { error?: string }
-  if (!response.ok) throw new Error(body.error || 'Something went wrong.')
-  return body
+  const raw = await response.text()
+  let body: (T & { error?: string }) | null = null
+  try {
+    body = raw ? (JSON.parse(raw) as T & { error?: string }) : null
+  } catch {
+    // A non-JSON body means the function itself failed; fall through to the status below.
+  }
+  if (!response.ok) throw new Error(body?.error || `The server returned an error (${response.status}).`)
+  return (body || ({} as T)) as T
 }
 
 function Home() {
@@ -294,9 +300,13 @@ function CatalogueSkeleton() {
 function MovieDetails({ dvd, role, onClose, onUpdated }: { dvd: Dvd; role: Role; onClose: () => void; onUpdated: (dvd?: Dvd) => void }) {
   const [details, setDetails] = useState(dvd)
   const [imdbInput, setImdbInput] = useState(dvd.imdbId || '')
+  const [titleInput, setTitleInput] = useState(dvd.title)
+  const [matches, setMatches] = useState<MovieMatch[]>([])
   const [loadingDetails, setLoadingDetails] = useState(!dvd.plot)
   const [busy, setBusy] = useState(false)
+  const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
+  const [saved, setSaved] = useState('')
 
   useEffect(() => {
     if (dvd.plot) return
@@ -306,19 +316,47 @@ function MovieDetails({ dvd, role, onClose, onUpdated }: { dvd: Dvd; role: Role;
       .finally(() => setLoadingDetails(false))
   }, [dvd.id])
 
-  async function refreshDetails() {
-    setBusy(true)
-    setError('')
+  function applyUpdate(updated: Dvd, message: string) {
+    setDetails(updated)
+    setTitleInput(updated.title)
+    setImdbInput(updated.imdbId || '')
+    setMatches([])
+    setSaved(message)
+    onUpdated(updated)
+  }
+
+  async function patch(body: Record<string, unknown>, message: string) {
+    setBusy(true); setError(''); setSaved('')
     try {
-      const result = await api<{ dvd: Dvd }>(`/api/catalogue?id=${dvd.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ refresh: true, title: details.title, imdbId: imdbInput }),
-      })
-      setDetails(result.dvd)
-      onUpdated(result.dvd)
+      const result = await api<{ dvd: Dvd }>(`/api/catalogue?id=${dvd.id}`, { method: 'PATCH', body: JSON.stringify(body) })
+      applyUpdate(result.dvd, message)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Details could not be refreshed.')
+      setError(caught instanceof Error ? caught.message : 'The change could not be saved.')
     } finally { setBusy(false) }
+  }
+
+  function saveTitle() {
+    if (!titleInput.trim()) { setError('Enter a title before saving.'); return }
+    return patch({ title: titleInput }, 'Title saved.')
+  }
+
+  function pullFromImdb() {
+    return patch(
+      imdbInput.trim() ? { refresh: true, imdbId: imdbInput } : { refresh: true, title: titleInput },
+      'Details pulled from IMDb.',
+    )
+  }
+
+  async function searchImdb() {
+    if (!titleInput.trim()) { setError('Enter a title to search for.'); return }
+    setSearching(true); setError(''); setSaved(''); setMatches([])
+    try {
+      const result = await api<{ matches: MovieMatch[] }>(`/api/movie-lookup?title=${encodeURIComponent(titleInput)}`)
+      setMatches(result.matches)
+      if (!result.matches.length) setError('No IMDb matches were found. Try a shorter title.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The IMDb search failed.')
+    } finally { setSearching(false) }
   }
 
   async function removeDvd() {
@@ -355,7 +393,54 @@ function MovieDetails({ dvd, role, onClose, onUpdated }: { dvd: Dvd; role: Role;
             {details.imdbId && <a className="primary-button" href={`https://www.imdb.com/title/${details.imdbId}/`} target="_blank" rel="noreferrer">View on IMDb <ChevronRight size={18} /></a>}
             <button className="secondary-button" onClick={onClose}>Back to catalogue</button>
           </div>
-          {role === 'admin' && <div className="admin-tools"><span><ShieldCheck size={17} /> Admin tools</span><input value={imdbInput} onChange={(event) => setImdbInput(event.target.value)} placeholder="IMDb ID, e.g. tt0059742" aria-label="IMDb ID" /><button onClick={refreshDetails} disabled={busy}><RefreshCw className={busy ? 'spin' : ''} size={16} /> Improve IMDb details</button><button className="danger" onClick={removeDvd} disabled={busy}><Trash2 size={16} /> Remove DVD</button></div>}
+
+          {role === 'admin' && (
+            <section className="admin-panel">
+              <p className="admin-panel-heading"><ShieldCheck size={17} /> Admin tools</p>
+
+              <label htmlFor="admin-title">Title</label>
+              <div className="admin-field">
+                <input
+                  id="admin-title"
+                  value={titleInput}
+                  onChange={(event) => setTitleInput(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') searchImdb() }}
+                  placeholder="Movie title"
+                />
+                <button onClick={searchImdb} disabled={busy || searching}>
+                  {searching ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />} Search IMDb
+                </button>
+                <button onClick={saveTitle} disabled={busy || searching || titleInput.trim() === details.title}>
+                  <Check size={16} /> Save title
+                </button>
+              </div>
+              <p className="admin-hint">Correct the title, then search IMDb and choose the right film to pull in the year, director, cast, synopsis and poster.</p>
+
+              <label htmlFor="admin-imdb">IMDb ID <span>(optional)</span></label>
+              <div className="admin-field">
+                <input id="admin-imdb" value={imdbInput} onChange={(event) => setImdbInput(event.target.value)} placeholder="e.g. tt0059742" />
+                <button onClick={pullFromImdb} disabled={busy || searching}>
+                  <RefreshCw className={busy ? 'spin' : ''} size={16} /> Pull details from IMDb
+                </button>
+              </div>
+
+              {matches.length > 0 && (
+                <div className="match-list admin-matches">
+                  <p className="match-heading">Choose the correct film</p>
+                  {matches.map((match) => (
+                    <button key={match.imdbId} onClick={() => patch({ refresh: true, imdbId: match.imdbId }, `Details updated from “${match.title}”.`)} disabled={busy}>
+                      {match.posterUrl ? <img src={match.posterUrl} alt="" /> : <span className="tiny-poster"><Film /></span>}
+                      <span><strong>{match.title}</strong><small>{match.year || 'Year unknown'}</small></span>
+                      <Check size={20} />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <button className="admin-remove danger" onClick={removeDvd} disabled={busy}><Trash2 size={16} /> Remove this DVD</button>
+            </section>
+          )}
+          {saved && <p className="form-success"><Check size={16} /> {saved}</p>}
           {error && <p className="form-error">{error}</p>}
         </div>
       </article>
@@ -469,7 +554,7 @@ function AdminAccess({ role, onClose, onAdmin }: { role: Role; onClose: () => vo
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  if (role === 'admin') return <div className="modal-backdrop" onMouseDown={onClose}><article className="admin-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}><X /></button><div className="admin-shield"><ShieldCheck size={34} /></div><p className="section-kicker">Admin portal</p><h2>Admin mode is active</h2><p className="muted">Open any DVD to improve its IMDb match or remove it from the catalogue.</p><button className="primary-button full-width" onClick={onClose}>Return to collection</button></article></div>
+  if (role === 'admin') return <div className="modal-backdrop" onMouseDown={onClose}><article className="admin-modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose}><X /></button><div className="admin-shield"><ShieldCheck size={34} /></div><p className="section-kicker">Admin portal</p><h2>Admin mode is active</h2><p className="muted">Open any DVD to edit its title, pull fresh details from IMDb, or remove it from the catalogue.</p><button className="primary-button full-width" onClick={onClose}>Return to collection</button></article></div>
 
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError('')
