@@ -1,18 +1,24 @@
 import { createFileRoute } from '@tanstack/react-router'
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Barcode,
   Camera,
   Check,
   ChevronRight,
   Clapperboard,
   Film,
+  FilterX,
   KeyRound,
+  LayoutGrid,
   LoaderCircle,
   LockKeyhole,
   LogOut,
   MapPin,
   Plus,
   RefreshCw,
+  Rows3,
   Search,
   ShieldCheck,
   Star,
@@ -51,6 +57,51 @@ type MovieMatch = {
   year?: string
   imdbId: string
   posterUrl?: string
+}
+
+type View = 'grid' | 'list'
+type SortKey = 'title' | 'year' | 'genre' | 'director' | 'shelf'
+type SortDirection = 'asc' | 'desc'
+type ColumnFilters = { title: string; director: string }
+
+const SORT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'title:asc', label: 'Title A–Z' },
+  { value: 'title:desc', label: 'Title Z–A' },
+  { value: 'year:desc', label: 'Year, newest first' },
+  { value: 'year:asc', label: 'Year, oldest first' },
+  { value: 'genre:asc', label: 'Genre A–Z' },
+  { value: 'director:asc', label: 'Director A–Z' },
+  { value: 'shelf:asc', label: 'Shelf location' },
+]
+
+const COLUMNS: Array<{ key: SortKey; label: string; className: string }> = [
+  { key: 'title', label: 'Title', className: 'col-title' },
+  { key: 'year', label: 'Year', className: 'col-year' },
+  { key: 'genre', label: 'Genre', className: 'col-genre' },
+  { key: 'director', label: 'Director', className: 'col-director' },
+  { key: 'shelf', label: 'Where to find it', className: 'col-shelf' },
+]
+
+// The value each column sorts on. Genres are stored as comma-separated lists, so
+// the first one is what a resident sees on the card and in the list.
+function sortValue(dvd: Dvd, key: SortKey) {
+  if (key === 'year') return dvd.year?.match(/\d{4}/)?.[0] || ''
+  if (key === 'genre') return dvd.genre?.split(/[,/]/)[0]?.trim() || ''
+  if (key === 'director') return dvd.director?.trim() || ''
+  if (key === 'shelf') return dvd.shelf?.trim() || ''
+  return dvd.title.trim()
+}
+
+function sortDvds(rows: Dvd[], key: SortKey, direction: SortDirection) {
+  return [...rows].sort((left, right) => {
+    const a = sortValue(left, key)
+    const b = sortValue(right, key)
+    // Titles missing a director, year or genre always sit at the end, whichever
+    // way the column is sorted, so the useful rows stay together.
+    if (!a || !b) return a ? -1 : b ? 1 : left.title.localeCompare(right.title)
+    const compared = a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    return (direction === 'asc' ? compared : -compared) || left.title.localeCompare(right.title)
+  })
 }
 
 type BarcodeDetectorInstance = {
@@ -170,6 +221,17 @@ function Catalogue({ role, onRoleChange }: { role: Role; onRoleChange: (role: Ro
   const [showAdd, setShowAdd] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
   const [notice, setNotice] = useState('')
+  const [view, setView] = useState<View>(() => {
+    if (typeof window === 'undefined') return 'grid'
+    return window.localStorage.getItem('village-cinema-view') === 'list' ? 'list' : 'grid'
+  })
+  const [sortKey, setSortKey] = useState<SortKey>('title')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+  const [filters, setFilters] = useState<ColumnFilters>({ title: '', director: '' })
+
+  useEffect(() => {
+    window.localStorage.setItem('village-cinema-view', view)
+  }, [view])
 
   // Cover artwork is fetched and stored a few titles at a time, so the grid
   // fills in as the resident browses and never repeats the work on a later
@@ -244,6 +306,35 @@ function Catalogue({ role, onRoleChange }: { role: Role; onRoleChange: (role: Ro
     return ['All genres', ...Array.from(values).filter(Boolean).sort()]
   }, [dvds])
 
+  // Column filters and sorting are applied in the browser: the whole catalogue is
+  // already loaded, so reordering and narrowing it stays instant.
+  const visible = useMemo(() => {
+    const title = filters.title.trim().toLowerCase()
+    const director = filters.director.trim().toLowerCase()
+    const matched = dvds.filter((dvd) => {
+      if (title && !dvd.title.toLowerCase().includes(title)) return false
+      if (director && !(dvd.director || '').toLowerCase().includes(director)) return false
+      return true
+    })
+    return sortDvds(matched, sortKey, sortDirection)
+  }, [dvds, filters, sortKey, sortDirection])
+
+  const columnFiltersActive = Boolean(filters.title.trim() || filters.director.trim())
+
+  function sortBy(key: SortKey) {
+    if (key === sortKey) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortKey(key)
+    setSortDirection(key === 'year' ? 'desc' : 'asc')
+  }
+
+  function resetFilters() {
+    setFilters({ title: '', director: '' })
+    setGenre('All genres')
+  }
+
   async function logout() {
     await api('/api/auth', { method: 'DELETE' })
     onRoleChange(null)
@@ -263,7 +354,7 @@ function Catalogue({ role, onRoleChange }: { role: Role; onRoleChange: (role: Ro
   return (
     <main className="catalogue-page">
       <header className="site-header">
-        <button className="wordmark" onClick={() => { setQuery(''); setGenre('All genres') }}>
+        <button className="wordmark" onClick={() => { setQuery(''); resetFilters() }}>
           <span className="brand-mark small"><Film size={25} /></span>
           <span><strong>Village Cinema</strong><small>DVD COLLECTION</small></span>
         </button>
@@ -295,17 +386,55 @@ function Catalogue({ role, onRoleChange }: { role: Role; onRoleChange: (role: Ro
       <section className="collection-section">
         <div className="section-heading">
           <div><p className="section-kicker">Now showing</p><h2>{query ? `Results for “${query}”` : genre !== 'All genres' ? genre : 'The full collection'}</h2></div>
-          <p>{loading ? 'Searching…' : `${dvds.length} ${dvds.length === 1 ? 'title' : 'titles'} shown`}</p>
+          <div className="section-tools">
+            <label className="sort-control">
+              <span>Sort by</span>
+              <select
+                value={`${sortKey}:${sortDirection}`}
+                onChange={(event) => {
+                  const [key, direction] = event.target.value.split(':')
+                  setSortKey(key as SortKey)
+                  setSortDirection(direction as SortDirection)
+                }}
+              >
+                {SORT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <div className="view-toggle" role="group" aria-label="Choose how to view the collection">
+              <button className={view === 'grid' ? 'active' : ''} aria-pressed={view === 'grid'} onClick={() => setView('grid')}><LayoutGrid size={18} /> Posters</button>
+              <button className={view === 'list' ? 'active' : ''} aria-pressed={view === 'list'} onClick={() => setView('list')}><Rows3 size={18} /> List</button>
+            </div>
+            <p className="result-count" aria-live="polite">{loading ? 'Searching…' : `${visible.length} ${visible.length === 1 ? 'title' : 'titles'} shown`}</p>
+          </div>
         </div>
 
         {notice && <button className="notice" onClick={() => setNotice('')}><Check size={18} /> {notice}<X size={16} /></button>}
 
-        {loading ? <CatalogueSkeleton /> : dvds.length ? (
-          <div className="movie-grid">
-            {dvds.map((dvd, index) => <MovieCard key={dvd.id} dvd={dvd} index={index} onClick={() => setSelected(dvd)} />)}
-          </div>
+        {loading ? (
+          view === 'list' ? <ListSkeleton /> : <CatalogueSkeleton />
+        ) : visible.length ? (
+          view === 'list' ? (
+            <MovieList
+              dvds={visible}
+              sortKey={sortKey}
+              sortDirection={sortDirection}
+              onSort={sortBy}
+              filters={filters}
+              onFilterChange={(patch) => setFilters((current) => ({ ...current, ...patch }))}
+              genre={genre}
+              genres={genres}
+              onGenreChange={setGenre}
+              filtersActive={columnFiltersActive || genre !== 'All genres'}
+              onClearFilters={resetFilters}
+              onSelect={setSelected}
+            />
+          ) : (
+            <div className="movie-grid">
+              {visible.map((dvd, index) => <MovieCard key={dvd.id} dvd={dvd} index={index} onClick={() => setSelected(dvd)} />)}
+            </div>
+          )
         ) : (
-          <div className="empty-state"><Search size={38} /><h3>No films found</h3><p>Try a different title, performer, director or genre.</p><button className="secondary-button" onClick={() => { setQuery(''); setGenre('All genres') }}>Show all DVDs</button></div>
+          <div className="empty-state"><Search size={38} /><h3>No films found</h3><p>Try a different title, performer, director or genre.</p><button className="secondary-button" onClick={() => { setQuery(''); resetFilters() }}>Show all DVDs</button></div>
         )}
       </section>
 
@@ -338,6 +467,118 @@ function MovieCard({ dvd, index, onClick }: { dvd: Dvd; index: number; onClick: 
 function PosterPlaceholder({ title }: { title: string }) {
   const initials = title.split(' ').filter((word) => word.length > 2).slice(0, 2).map((word) => word[0]).join('') || title.slice(0, 2)
   return <div className="poster-placeholder"><Film size={34} /><strong>{initials}</strong><span>VILLAGE CINEMA</span></div>
+}
+
+function MovieList({
+  dvds,
+  sortKey,
+  sortDirection,
+  onSort,
+  filters,
+  onFilterChange,
+  genre,
+  genres,
+  onGenreChange,
+  filtersActive,
+  onClearFilters,
+  onSelect,
+}: {
+  dvds: Dvd[]
+  sortKey: SortKey
+  sortDirection: SortDirection
+  onSort: (key: SortKey) => void
+  filters: ColumnFilters
+  onFilterChange: (patch: Partial<ColumnFilters>) => void
+  genre: string
+  genres: string[]
+  onGenreChange: (genre: string) => void
+  filtersActive: boolean
+  onClearFilters: () => void
+  onSelect: (dvd: Dvd) => void
+}) {
+  return (
+    <div className="list-view">
+      <div className="list-filters">
+        <label>
+          <span>Title contains</span>
+          <input value={filters.title} onChange={(event) => onFilterChange({ title: event.target.value })} placeholder="Any title" />
+        </label>
+        <label>
+          <span>Genre</span>
+          <select value={genre} onChange={(event) => onGenreChange(event.target.value)}>
+            {genres.map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Director contains</span>
+          <input value={filters.director} onChange={(event) => onFilterChange({ director: event.target.value })} placeholder="Any director" />
+        </label>
+        <button className="clear-filters" onClick={onClearFilters} disabled={!filtersActive}><FilterX size={16} /> Clear filters</button>
+      </div>
+
+      <div className="table-wrap">
+        <table className="movie-table">
+          <caption className="visually-hidden">The DVD collection. Use the column buttons to sort by title, year, genre, director or shelf.</caption>
+          <thead>
+            <tr>
+              <th scope="col" className="col-art"><span className="visually-hidden">Cover</span></th>
+              {COLUMNS.map((column) => {
+                const active = sortKey === column.key
+                return (
+                  <th
+                    key={column.key}
+                    scope="col"
+                    className={`${column.className}${active ? ' sorted' : ''}`}
+                    aria-sort={active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  >
+                    <button onClick={() => onSort(column.key)}>
+                      {column.label}
+                      {active ? (sortDirection === 'asc' ? <ArrowUp size={15} /> : <ArrowDown size={15} />) : <ArrowUpDown size={15} className="sort-hint" />}
+                    </button>
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {dvds.map((dvd) => (
+              <tr key={dvd.id} onClick={() => onSelect(dvd)}>
+                <td className="col-art">
+                  {dvd.posterUrl
+                    ? <img className="list-thumb" src={dvd.posterUrl} alt={`Poster for ${dvd.title}`} />
+                    : <span className="list-thumb placeholder"><Film size={18} /></span>}
+                </td>
+                <td className="col-title">
+                  <button className="list-title" onClick={(event) => { event.stopPropagation(); onSelect(dvd) }}>{dvd.title}</button>
+                  {!dvd.available && <span className="list-flag">Unavailable</span>}
+                </td>
+                <td className="col-year" data-label="Year">{dvd.year || '—'}</td>
+                <td className="col-genre" data-label="Genre">{dvd.genre || '—'}</td>
+                <td className="col-director" data-label="Director">{dvd.director || '—'}</td>
+                <td className="col-shelf"><span className="list-shelf"><MapPin size={14} /> {dvd.shelf || 'Ask at the cinema'}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ListSkeleton() {
+  return (
+    <div className="list-view">
+      <div className="table-wrap">
+        {Array.from({ length: 10 }, (_, index) => (
+          <div className="list-skeleton-row" key={index}>
+            <div className="skeleton thumb-skeleton" />
+            <div className="skeleton line" />
+            <div className="skeleton line medium" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function CatalogueSkeleton() {
