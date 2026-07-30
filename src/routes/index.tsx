@@ -43,6 +43,7 @@ type Dvd = {
   barcode: string | null
   available: boolean
   detailsSource: string
+  artworkCheckedAt: string | null
 }
 
 type MovieMatch = {
@@ -169,6 +170,52 @@ function Catalogue({ role, onRoleChange }: { role: Role; onRoleChange: (role: Ro
   const [showAdd, setShowAdd] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
   const [notice, setNotice] = useState('')
+
+  // Cover artwork is fetched and stored a few titles at a time, so the grid
+  // fills in as the resident browses and never repeats the work on a later
+  // visit. Rows already asked about are tracked to keep the effect from looping.
+  const artworkQueue = useRef<number[]>([])
+  const artworkAsked = useRef(new Set<number>())
+  const artworkBusy = useRef(false)
+  const artworkStopped = useRef(false)
+
+  async function runArtworkQueue() {
+    if (artworkBusy.current) return
+    artworkBusy.current = true
+    try {
+      while (artworkQueue.current.length && !artworkStopped.current) {
+        const batch = artworkQueue.current.splice(0, 10)
+        const result = await api<{ dvds: Dvd[]; stop?: boolean }>('/api/catalogue-artwork', {
+          method: 'POST',
+          body: JSON.stringify({ ids: batch }),
+        })
+        if (result.dvds?.length) {
+          const byId = new Map(result.dvds.map((dvd) => [dvd.id, dvd]))
+          setDvds((current) => current.map((dvd) => byId.get(dvd.id) || dvd))
+        }
+        if (result.stop) artworkStopped.current = true
+      }
+    } catch {
+      // Artwork is a nicety: on failure the placeholder covers stay in place.
+      artworkStopped.current = true
+    } finally {
+      artworkBusy.current = false
+      if (artworkStopped.current) artworkQueue.current = []
+    }
+  }
+
+  useEffect(() => {
+    if (artworkStopped.current) return
+    const pending = dvds
+      .filter((dvd) => !dvd.posterUrl && !dvd.artworkCheckedAt && !artworkAsked.current.has(dvd.id))
+      .map((dvd) => dvd.id)
+    if (!pending.length) return
+    pending.forEach((id) => artworkAsked.current.add(id))
+    artworkQueue.current.push(...pending)
+    runArtworkQueue()
+  }, [dvds])
+
+  useEffect(() => () => { artworkStopped.current = true }, [])
 
   async function loadCatalogue() {
     setLoading(true)
@@ -302,14 +349,16 @@ function MovieDetails({ dvd, role, onClose, onUpdated }: { dvd: Dvd; role: Role;
   const [imdbInput, setImdbInput] = useState(dvd.imdbId || '')
   const [titleInput, setTitleInput] = useState(dvd.title)
   const [matches, setMatches] = useState<MovieMatch[]>([])
-  const [loadingDetails, setLoadingDetails] = useState(!dvd.plot)
+  const [loadingDetails, setLoadingDetails] = useState(!dvd.plot && !dvd.artworkCheckedAt)
   const [busy, setBusy] = useState(false)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState('')
 
   useEffect(() => {
-    if (dvd.plot) return
+    // Details are stored on first lookup, so only titles that have never been
+    // checked need to ask the movie service here.
+    if (dvd.plot || dvd.artworkCheckedAt) return
     api<Partial<Dvd>>(`/api/movie-lookup?title=${encodeURIComponent(dvd.title)}&details=true`)
       .then((result) => setDetails((current) => ({ ...current, ...result } as Dvd)))
       .catch(() => undefined)

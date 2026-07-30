@@ -1,0 +1,1 @@
+ALTER TABLE "dvds" ADD COLUMN "artwork_checked_at" timestamp with time zone;

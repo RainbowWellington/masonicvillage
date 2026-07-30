@@ -18,6 +18,9 @@ export const dvds = pgTable('dvds', {
   quantity: integer('quantity').notNull().default(1),
   available: boolean('available').notNull().default(true),
   detailsSource: text('details_source').notNull().default('catalogue'),
+  // Set once artwork has been looked up, so titles with no match (concert and
+  // special-interest DVDs) are never queried against OMDb again.
+  artworkCheckedAt: timestamp('artwork_checked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
