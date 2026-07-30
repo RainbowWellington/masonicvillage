@@ -35,6 +35,46 @@ function normalize(result: OmdbResult): MovieDetails {
 // Errors that are safe and useful to show a resident or admin.
 export class LookupError extends Error {}
 
+// A title the movie service simply does not know about, as opposed to the
+// service being unreachable or misconfigured.
+export class MovieNotFoundError extends LookupError {}
+
+function comparable(title: string) {
+  return title
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/^(the|a|an)\s+/, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+// Wording a shelf label may carry that a film's real title does not.
+const EDITION_WORDS = new Set([
+  'dvd', 'dvds', 'disc', 'disk', 'bluray', 'blu', 'ray', 'widescreen', 'fullscreen', 'special', 'limited',
+  'collector', 'collectors', 'edition', 'anniversary', 'remastered', 'restored', 'uncut', 'unrated',
+  'extended', 'director', 'directors', 'cut', 'version', 'the', 'a', 'an', 'movie', 'film', 'feature',
+  'complete', 'collection', 'box', 'set', 'volume', 'vol', 'part', 'series', 'season',
+])
+
+function onlyEditionWords(text: string) {
+  const words = text.split(' ').filter(Boolean)
+  return words.length > 0 && words.every((word) => EDITION_WORDS.has(word) || /^\d+$/.test(word))
+}
+
+// Guards the automatic poster backfill: OMDb answers a loose title query with
+// its closest guess, and a confidently wrong cover is worse than none at all.
+// A result is trusted when it is the same title, when it merely adds a subtitle
+// to the catalogue title, or when the catalogue title only adds edition wording.
+export function titlesMatch(found: string, catalogued: string) {
+  const result = comparable(found)
+  const shelf = comparable(catalogued)
+  if (!result || !shelf) return false
+  if (result === shelf) return true
+  if (result.startsWith(`${shelf} `)) return shelf.length >= result.length / 2
+  if (shelf.startsWith(`${result} `)) return onlyEditionWords(shelf.slice(result.length + 1))
+  return false
+}
+
 // OMDb emails the key inside a sample request URL, so the configured value is
 // often the whole URL rather than the bare key. Accept either form.
 function resolveApiKey() {
@@ -74,7 +114,7 @@ export async function getMovie(imdbId?: string, title?: string) {
   else if (title) params.set('t', title)
   else throw new LookupError('A title or IMDb ID is required.')
   const result = await omdb(params)
-  if (result.Response === 'False') throw new LookupError(result.Error || 'No matching movie was found.')
+  if (result.Response === 'False') throw new MovieNotFoundError(result.Error || 'No matching movie was found.')
   return normalize(result)
 }
 
